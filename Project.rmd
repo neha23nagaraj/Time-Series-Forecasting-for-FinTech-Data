@@ -1,0 +1,228 @@
+---
+title: "MA641_Project"
+author: "Neha Nagaraj"
+date: "2025-12-01"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    fig_caption: true
+    number_sections: true
+    keep_tex: true
+fontsize: 10pt
+geometry: margin=1in
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+This project applies the Box–Jenkins methodology to two financial time series: daily Bitcoin prices (nonseasonal) and monthly U.S. credit-card debt (seasonal). The goal is to identify, estimate, and evaluate ARIMA and SARIMA models suitable for forecasting. These datasets capture nonseasonal volatility and annual consumer spending cycles, respectively, providing a contrast in time-series behavior.
+
+```{r}
+#install.packages(c("forecast", "tseries", "ggplot2", "readr", "dplyr"))
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(readr)
+library(dplyr)
+library(knitr)
+```
+
+I) Nonseasonal Time Series Data
+
+```{r}
+# Loading datatset
+bitcoin <- read_csv("/Users/nehanagaraj/Desktop/Stevens/Fall 2025/MA 641/Project/Nonseasonal/bitcoin.csv", show_col_types = FALSE)
+# Convert date column to Date type
+bitcoin$snapped_at <- as.Date(bitcoin$snapped_at)
+# Create a daily time series using the 'price' column
+bitcoin_ts <- ts(bitcoin$price, frequency = 1, start = 1)
+# Plot the raw price series
+plot(bitcoin_ts, main = "Daily Bitcoin Price (USD)", ylab = "Price (USD)", col = "steelblue")
+```
+
+
+```{r, echo=TRUE, results='asis'}
+# Function to run ADF test and print a clear interpretation
+check_stationarity <- function(series, alpha = 0.05) {
+  test_result <- adf.test(series)
+  p_val <- test_result$p.value
+  cat("ADF Test Statistic:", round(test_result$statistic, 3), "\n")
+  cat("P-value:", p_val, "\n")
+  if (p_val < alpha) {
+    cat("Result: Series is stationary (reject null hypothesis)\n")
+  } else {
+    cat("Result: Series is non-stationary (fail to reject null hypothesis)\n")
+  }
+  invisible(test_result)
+}
+
+cat("Running Augmented Dickey-Fuller test to check for stationarity\n")
+check_stationarity(bitcoin_ts)
+cat("Re-running Augmented Dickey-Fuller test on differenced data to check for stationarity\n")
+bitcoin_diff <- diff(bitcoin_ts)
+check_stationarity(bitcoin_diff)
+```
+The Augmented Dickey–Fuller test showed that the original Bitcoin price series was non-stationary (p = 0.85). After first differencing, the p-value dropped below 0.05, confirming that the differenced series is stationary and suitable for ARIMA modeling.
+
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+fit_btc <- auto.arima(bitcoin_ts)
+summary(fit_btc)
+```
+The automatic ARIMA procedure selected an ARIMA(0, 1, 1) model with drift. This model captures short-term dependencies using a single moving-average term while accounting for the trend through differencing and drift.
+
+```{r, results='asis'}
+checkresiduals(fit_btc)
+```
+Residual plots displayed no major autocorrelation and the Ljung–Box test produced a p-value slightly above 0.04, suggesting the residuals behave approximately as white noise. The model assumptions are therefore reasonably satisfied.
+
+
+```{r}
+btc_forecast <- forecast(fit_btc, h = 30)
+autoplot(btc_forecast) +
+  ggtitle("30-Day Bitcoin Price Forecast") +
+  ylab("Price (USD)") + xlab("Day")
+```
+The 30-day forecast projects a moderate upward trend in Bitcoin prices with widening confidence intervals, reflecting increased uncertainty over time.
+
+```{r, echo=TRUE}
+# Pure AR(1) model
+fit_ar <- Arima(bitcoin_diff, order = c(1,0,0))
+summary(fit_ar)
+# Pure MA(1) model
+fit_ma <- Arima(bitcoin_diff, order = c(0,0,1))
+summary(fit_ma)
+# ARMA(1,1) model
+fit_arma <- Arima(bitcoin_diff, order = c(1,0,1))
+summary(fit_arma)
+# ARIMA(1,1,1) model
+fit_arima1 <- Arima(bitcoin_ts, order = c(1,1,1))
+summary(fit_arima1)
+# ARIMA(0,1,1) model
+fit_arima2 <- Arima(bitcoin_ts, order = c(0,1,1))
+summary(fit_arima2)
+# ARIMA(2,1,2) model
+fit_arima3 <- Arima(bitcoin_ts, order = c(2,1,2))
+summary(fit_arima3)
+
+# AIC Comparison
+AIC(fit_ar, fit_ma, fit_arma, fit_arima1, fit_arima2, fit_arima3)
+# BIC Comparison
+BIC(fit_ar, fit_ma, fit_arma, fit_arima1, fit_arima2, fit_arima3)
+
+cat("Checking residuals for ARIMA(0,1,1):\n")
+checkresiduals(fit_arima2)
+cat("Checking residuals for ARMA(1,1):\n")
+checkresiduals(fit_arma)
+```
+Among the AR, MA, ARMA, and ARIMA models tested, ARIMA(0, 1, 1) achieved the lowest AIC (≈ 76 432) and BIC values. Residual checks confirmed adequacy, so this model was selected as the final specification for Bitcoin forecasting.
+
+
+II) Seasonal Time Series Data
+
+```{r}
+# Import dataset
+credit <- read_csv("/Users/nehanagaraj/Desktop/Stevens/Fall 2025/MA 641/Project/Seasonal/REVOLSL.csv",show_col_types = FALSE)
+# Convert date column to Date format
+credit$observation_date <- as.Date(credit$observation_date)
+# Convert to monthly time series (start = first year in dataset, frequency = 12)
+credit_ts <- ts(credit$REVOLSL, start = c(1968, 1), frequency = 12)
+# Plot the raw data
+autoplot(credit_ts) +
+  ggtitle("Monthly U.S. Credit Card Debt (REVOLSL)") +
+  xlab("Year") + ylab("Billions of USD")
+```
+
+```{r}
+decomp_credit <- decompose(credit_ts)
+autoplot(decomp_credit)
+```
+The decomposition clearly shows an upward trend and a repeating 12-month seasonal pattern, with peaks typically occurring near the end of each year—consistent with holiday spending behavior.
+
+
+```{r}
+check_stationarity <- function(series, alpha = 0.05) {
+  test_result <- adf.test(series)
+  p_val <- test_result$p.value
+  cat("ADF Test Statistic:", round(test_result$statistic, 3), "\n")
+  cat("P-value:", p_val, "\n")
+  if (p_val < alpha) {
+    cat("Series is stationary (reject null hypothesis)\n")
+  } else {
+    cat("Series is non-stationary (fail to reject null hypothesis)\n")
+  }
+  invisible(test_result)
+}
+
+cat("ADF Test on original credit series:\n")
+check_stationarity(credit_ts)
+cat("ADF Test on first difference:\n")
+credit_diff <- diff(credit_ts)
+check_stationarity(credit_diff)
+```
+The ADF test on the original series indicated non-stationarity (p > 0.05). After first differencing, the series became stationary (p < 0.05), confirming that one regular difference and one seasonal difference are appropriate for SARIMA modeling.
+
+```{r}
+# Non-seasonal ARIMA for comparison
+fit_arima <- auto.arima(credit_ts, seasonal = FALSE)
+summary(fit_arima)
+# Seasonal ARIMA (SARIMA)
+fit_sarima <- auto.arima(credit_ts, seasonal = TRUE)
+summary(fit_sarima)
+
+```
+
+
+```{r}
+# Pure AR(1) model
+fit_ar <- Arima(credit_diff, order = c(1,0,0))
+summary(fit_ar)
+# Pure MA(1) model
+fit_ma <- Arima(credit_diff, order = c(0,0,1))
+summary(fit_ma)
+# ARMA(1,1) model
+fit_arma <- Arima(credit_diff, order = c(1,0,1))
+summary(fit_arma)
+# ARIMA(1,1,1) model (non-seasonal)
+fit_arima <- Arima(credit_ts, order = c(1,1,1))
+summary(fit_arima)
+# SARIMA(0,1,1)(0,1,1)[12] model (seasonal)
+fit_sarima <- Arima(credit_ts, order = c(0,1,1), seasonal = c(0,1,1))
+summary(fit_sarima)
+# SARIMA(1,1,1)(1,1,1)[12] - slightly more complex
+fit_sarima2 <- Arima(credit_ts, order = c(1,1,1), seasonal = c(1,1,1))
+summary(fit_sarima2)
+
+print(AIC(fit_ar, fit_ma, fit_arma, fit_arima, fit_sarima, fit_sarima2))
+print(BIC(fit_ar, fit_ma, fit_arma, fit_arima, fit_sarima, fit_sarima2))
+```
+
+Several candidate models were evaluated, including AR(1), MA(1), ARMA(1, 1), ARIMA(1, 1, 1), and two seasonal SARIMA variants. The SARIMA(1, 1, 1)(1, 1, 1)[12] model produced the lowest AIC = 13 523.7 and BIC = 13 546.3, indicating the best fit to the data.
+
+```{r}
+cat("Checking residuals for SARIMA(0,1,1)(0,1,1)[12]:\n")
+checkresiduals(fit_sarima)
+```
+
+The residuals from the SARIMA(1, 1, 1)(1, 1, 1)[12] model show no remaining autocorrelation, and the Ljung–Box test yields p > 0.05. This suggests the model sufficiently explains both trend and seasonality.
+
+```{r}
+credit_forecast <- forecast(fit_sarima2, h = 12)
+autoplot(credit_forecast) +
+  ggtitle("12-Month Forecast of U.S. Credit Card Debt") +
+  xlab("Year") + ylab("Billions of USD") +
+  theme_minimal()
+```
+
+The 12-month forecast indicates a continued gradual rise in total U.S. credit-card debt, with seasonal fluctuations repeating each year. Confidence intervals widen modestly, reflecting predictable cyclical variation.
+
+
+Conclusion:
+
+The ARIMA(0,1,1) with drift model successfully captured the short-term dynamics in daily Bitcoin prices, while the SARIMA(1,1,1)(1,1,1)[12] model effectively modeled the seasonal pattern in U.S. credit-card debt. Both models satisfied diagnostic checks and produced interpretable short-term forecasts. This analysis demonstrates how the Box–Jenkins approach can be adapted to both seasonal and nonseasonal financial time series for meaningful FinTech forecasting applications.
