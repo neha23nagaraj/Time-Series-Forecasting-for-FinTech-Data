@@ -84,4 +84,4 @@ The Box–Jenkins procedure was followed for both datasets:
 
 **Neha Nagaraj**  
 M.S. Data Science, Stevens Institute of Technology  
-[LinkedIn]([https://www.linkedin.com](https://www.linkedin.com/in/neha-nagaraj-23j2002/)) · neha23nagaraj@gmail.com
+[LinkedIn]([https://www.linkedin.com](https://www.linkedin.com/in/neha-nagaraj-23j2002/]) · neha23nagaraj@gmail.com
